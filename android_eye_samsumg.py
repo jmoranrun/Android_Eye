@@ -70,8 +70,7 @@ class adb_driver():
 class android_eye(adb_driver):
 
     # Constant to define crop points
-    CROP_TOP = 800
-#   CROP_BOT = 1200
+    CROP_TOP = 730 
     CROP_BOT = 2000
     CROP_LEFT = 0
     CROP_RIGHT = 960
@@ -81,23 +80,18 @@ class android_eye(adb_driver):
     # Adaptive scrolling crop points
     AJ_SC_FULL_SCN = 780
     AJ_SC_TUN_SCN=CROP_BOT-CROP_TOP  #990#1025#970 #753 #755  #773 #776
-    AJ_SMALL_SCREEN_FACTOR = 1.02
-    BOT_IMAGE_TRUN_THRES = 5 # Ingor transistions very close to the image end
-    SIMILARITY_THRES = 8000  # 250 edit
-    SEG_SIZE_THRESHOLD = 20
-    PIXEL_LEVEL_SIMILARITY_THRES = 30  # 250 edit
-    TRUN_SCREEN_THRESHOLD_CK = 30  #15 #  This defines how far we check for a color transition to determine screen trunction
-    RHS_MARGIN_THRES = 4
-    TIME_CHECK_THRES = 2  # Number of minutes the inspection app time must be within the current time
+    AJ_UNDERSWIPE_FACTOR = 0.97
+    # Duplicate Screen Check Constants
+    SIMILARITY_THRES = 8000  # 
+    PIXEL_LEVEL_SIMILARITY_THRES = 30  
+    # Constants for output files dirs
     IMAGES_PATH_LOG = "images/"
     TESSERACT_PATH_ROOT = "tesseract/"
     LOG_PATH_ROOT = "log/"
     GOLDEN_VEC_ROOT = "golden/"
-    # OpenCV BGR Constants
-    BGR_PURPLE   = [127,   0, 127]
-    BGR_RED      = [  0,   0, 255]
-    BGR_GREEN    = [  0, 255,   0]
-    BGR_WHITE    = [255, 255, 255]
+    # Screen check location constants
+    TRUN_SCREEN_THRESHOLD_CK = 30  #  This defines how far we check for a color transition to determine screen trunction
+    RHS_MARGIN_THRES = 4
 
 
     class Color(Enum):  
@@ -118,7 +112,6 @@ class android_eye(adb_driver):
 
 
     def __init__(self, test_dir, golden_dir="", lt_offset=0, bcf_elasped=0, fpn=False, ticket_removal=False):
-    #   self.device = super().init_adb()   # Init the adb device
         self.device = super().__init__()   # Init the adb device
         self.test_dir = ""         # This will hold the output directtoy
         self.golden_file = ""      # This will hold the golden comparsion directory 
@@ -149,6 +142,7 @@ class android_eye(adb_driver):
         self.time_window_ck_assert = True   
         self.time_bcf_assert = True 
         self.ticket_removal = ticket_removal
+        self.prev_string_dict = set()  # Set to track previous recorded strings
 
 
 
@@ -219,30 +213,6 @@ class android_eye(adb_driver):
         color = self.color_lu_dict.get(key,0)
         return color
 
-    def detrunc_img(self, image, top):
-        """
-      Function to remove truncated text from inpsection app image
-      This function will scan from either  the top ot the base  of the
-      image and find the first row with uniform pixels  
-      The fuction can work from the top or bottom of the image 
-      depending on whether top is set to true or false
-        """
-        if(top==True): 
-            row_idx=0
-        else:
-            row_idx=image.shape[0]-1
-        row = image[row_idx]
-        ## Loop thru the image to find the first uniform row
-        while (not np.all(row == row[-1])):  
-            if top:
-                row_idx+=1 
-            else:
-                row_idx-=1 
-            row = image[row_idx]
-        detrunc_idx=row_idx
-        image[0:detrunc_idx,:] = 0
-        return image
-
     def invert_img(self, image):
         """
         Function to invert image
@@ -259,7 +229,7 @@ class android_eye(adb_driver):
         image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY)[1]
         return image
 
-    def gen_screen_dict(self, inFile, screen_cap, section, color, segement_size):
+    def gen_screen_struct(self, inFile, screen_cap, section, color, segement_size):
         """
         Function to tesseract output text file and
         generate the dictonary which contains test 
@@ -270,17 +240,18 @@ class android_eye(adb_driver):
         for line in inFile:
             if line.strip():
                 string += line  
-        if(string !=""):
-            if (not any(string in x for x in screen_cap)):  ## Dont insert duplicates                   
-                    screen_cap_sec_lst[0] = string  
-                    screen_cap_sec_lst[1] = color           
-                    screen_cap_sec_lst[2] = segement_size
-                    screen_cap.append(screen_cap_sec_lst)
+        if(string !=""):     
+            if(string not in self.prev_string_dict):   ## Dont insert duplicates   - check previous string dictonary
+            	self.prev_string_dict.add(string)
+            	screen_cap_sec_lst[0] = string  
+            	screen_cap_sec_lst[1] = color           
+            	screen_cap_sec_lst[2] = segement_size
+            	screen_cap.append(screen_cap_sec_lst)
         else:                       
-                    screen_cap_sec_lst[0] = "Dummy"         ## Identify test free segments with the keyword "Dummy" 
-                    screen_cap_sec_lst[1] = self.Color.WHITE            
-                    screen_cap_sec_lst[2] = 0
-                    screen_cap.append(screen_cap_sec_lst)       
+        	screen_cap_sec_lst[0] = "Dummy"         ## Identify test free segments with the keyword "Dummy" 
+        	screen_cap_sec_lst[1] = self.Color.WHITE            
+        	screen_cap_sec_lst[2] = 0
+        	screen_cap.append(screen_cap_sec_lst)       
         return screen_cap
 
 
@@ -299,7 +270,7 @@ class android_eye(adb_driver):
                 color = self.find_image_color(color_sub_image[count])
                 if(color == self.Color.RED or color == self.Color.NAVY_BLUE):
                     sub_image = self.invert_img(sub_image)
-                cv2.imwrite(self.IMAGES_PATH + 'sub_image{}.png'.format(count),sub_image)
+                cv2.imwrite(self.IMAGES_PATH + 'sub_image{}.png'.format(count, screen_cnt),sub_image)
                 cv2.imwrite(self.IMAGES_PATH + 'color_sub_image{}.png'.format(count),color_sub_image[count])   
                 img_path = self.IMAGES_PATH + "sub_image" + str(count) + ".png"         
                 out_path = self.TESSERACT_PATH + "screen" + str(count)
@@ -308,7 +279,7 @@ class android_eye(adb_driver):
                 tesseract_file = open(self.TESSERACT_PATH + "screen%d.txt" % count, "r")
                 segement_size  = trans_pnt[count+1] -  trans_pnt[count]
                 segement_pos   = count
-                screen_capture = self.gen_screen_dict(tesseract_file, screen_capture, count, color, segement_size)
+                screen_capture = self.gen_screen_struct(tesseract_file, screen_capture, count, color, segement_size)
         return screen_capture
 
 
@@ -317,11 +288,7 @@ class android_eye(adb_driver):
         Function to check the transition point on a screen capture - 
         used to determine is a screen is truncated
         """
-        #page_trunc=not((image[0:self.TRUN_SCREEN_THRESHOLD_CK,:]==image[0,:]).all())term
-        page_trunc=(image[0:self.TRUN_SCREEN_THRESHOLD_CK,image.shape[1]-android_eye.RHS_MARGIN_THRES]==image[0,image.shape[1]-android_eye.RHS_MARGIN_THRES]).all()
-        #print(image[0:self.TRUN_SCREEN_THRESHOLD_CK,image.shape[1]-android_eye.RHS_MARGIN_THRES])
-        #print(image[0:self.TRUN_SCREEN_THRESHOLD_CK+10,image.shape[1]-android_eye.RHS_MARGIN_THRES])       
-        cv2.imwrite(self.IMAGES_PATH + 'tunc_debug.png',image)
+        page_trunc=(image[0:self.TRUN_SCREEN_THRESHOLD_CK, image.shape[1]-android_eye.RHS_MARGIN_THRES]==image[0, image.shape[1]-android_eye.RHS_MARGIN_THRES]).all()     
         return page_trunc   
 
     def element_parser(self, screen_capture, current_time):
@@ -334,7 +301,7 @@ class android_eye(adb_driver):
 
         return screen_capture
 
-    def print_op_file(self, screen_capture,op_file_name):
+    def print_op_file(self, screen_capture, op_file_name):
         """
         Function to print the captured screen contents 
         to an output file
@@ -346,7 +313,7 @@ class android_eye(adb_driver):
                     sub_element=str(sub_element)
                     textfile.write(sub_element.rstrip("\n"))
                     textfile.write(" ")
-                textfile.write("\n")    
+                textfile.write("\n\n") 
         textfile.close()
 
     def compare_static(self, op_file_name):
@@ -360,21 +327,6 @@ class android_eye(adb_driver):
             for line in difflib.unified_diff(text1, text2):
                 print(line)
 
-
-    def check_times(self, ref_time, current_time, lt_offset):
-        """
-        Function to check the curren time against 
-        the inspection app time
-        This was used on the version of the tool I used for wor purposed - not used for the Samsumg Phone version of the tool
-        """
-        current_time = datetime.strptime(current_time, '%d-%m-%Y %H:%M')
-        ref_time = datetime.strptime(ref_time.lstrip(), '%d-%m-%Y %H:%M')
-        time_thres =str(android_eye.TIME_CHECK_THRES)
-        tdiff = current_time - ref_time 
-        #assert abs(tdiff.total_seconds() - lt_offset*60) < int(time_thres)*60,  "Inspection Time is Outside Permissable Window"
-        if((tdiff.total_seconds() - lt_offset*60) > int(time_thres)*60):
-            self.time_window_ck_assert = False
-    
     def is_similar(self, image1, image2):
         """ 
         Function to check the similarity between 2 imgaes
@@ -396,15 +348,16 @@ class android_eye(adb_driver):
         identical_img = False
         screen_cnt=1
         screen_capture = []
-        while(1):
+        screen_cap_complete = False
+        while(not screen_cap_complete):
             print("Capturing screen {0}, plesae wait".format(screen_cnt))
             self.capture_adb(self.device, screen_cnt)
             inspec_screen = cv2.imread(self.CWD_PATH + '/screen.png')
             inspec_screen_bw = cv2.cvtColor(inspec_screen, cv2.COLOR_BGR2GRAY)
             inspec_screen_crop=inspec_screen_bw[android_eye.CROP_TOP:android_eye.CROP_BOT,android_eye.CROP_LEFT:android_eye.CROP_RIGHT]
-            cv2.imwrite(self.IMAGES_PATH + 'crop_deubg.png', inspec_screen_crop)
+            cv2.imwrite(self.IMAGES_PATH + 'crop' + str(screen_cnt) + '.png', inspec_screen_crop)
             inspec_screen_crop_color = inspec_screen[android_eye.CROP_TOP:android_eye.CROP_BOT, :]
-            page_trunc = self.check_trans_at_topscn(inspec_screen_crop)   # Detect if page is truncated => discard first element
+            page_trunc = self.check_trans_at_topscn(inspec_screen_crop)   # Detect if page is truncated at top => discard first element
             if(screen_cnt!=1):
                 cv2.imwrite(self.IMAGES_PATH + 'stop_prev.png', prev_screen[:, :android_eye.SIM_CROP_RIGHT])
                 cv2.imwrite(self.IMAGES_PATH + 'stop_curr.png', inspec_screen_bw[:, :android_eye.SIM_CROP_RIGHT])
@@ -412,24 +365,21 @@ class android_eye(adb_driver):
                     file_name = self.LOG_PATH + self.fpn_dir + "screen" + str(screen_cnt) + '.png'
                     os.remove(file_name)  # Remove the last screen printed out as it will be a duplicate
                     print("Screen Capture Complete")
-                    break
-            # Not Lat Page => Remove Last Capscren entry
+                    screen_cap_complete = True
+            # Not Lat Page => Remove Last Capscren entry from output list and prev string dictonary
                 else:
-                    del screen_capture[-1]
+                    del_str = screen_capture.pop(-1)[0]
+                    self.prev_string_dict.remove(del_str)
             sub_image_lst, trans_pnt = self.find_sub_images(inspec_screen_crop, True)
             color_sub_image = self.find_color_sub_images(inspec_screen_crop_color, trans_pnt)
             screen_capture = self.capture_screen(sub_image_lst, color_sub_image, screen_capture, page_trunc, trans_pnt, screen_cnt)
             prev_screen = np.copy(inspec_screen_bw)
-            print(trans_pnt[-2], inspec_screen_crop.shape[0])
-            if(trans_pnt[-2] > inspec_screen_crop.shape[0]/1.85):
-                adjusted_scroll = ((trans_pnt[-2])/inspec_screen_crop.shape[0])*(android_eye.AJ_SC_TUN_SCN)
-            else:
-                adjusted_scroll = ((trans_pnt[-2])/inspec_screen_crop.shape[0])*(android_eye.AJ_SC_TUN_SCN)*android_eye.AJ_SMALL_SCREEN_FACTOR
+            adjusted_scroll = ((trans_pnt[-2])/inspec_screen_crop.shape[0])*(android_eye.AJ_SC_TUN_SCN)*android_eye.AJ_UNDERSWIPE_FACTOR
             self.swipe_adb(y1=adjusted_scroll)
             screen_cnt +=1
 
 
-# Now Parse the elements into static and dymanic elements
+# Now output the screen descriptors to output files
         screen_capture = self.element_parser(screen_capture, current_time)
         op_file_name = self.LOG_PATH + self.fpn_dir + "screen_cap" + '.txt'
         self.print_op_file(screen_capture, op_file_name)
