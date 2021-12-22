@@ -54,7 +54,7 @@ class adb_driver():
     def capture_adb(self, device, screen_cnt):
         """
         Function to capture
-         the android devices screen
+        the android devices screen
         """
         screen = device.screencap()
         with open("screen.png", "wb") as fp:
@@ -111,13 +111,10 @@ class android_eye(adb_driver):
 
 
 
-    def __init__(self, test_dir, golden_dir="", lt_offset=0, bcf_elasped=0, fpn=False, ticket_removal=False):
+    def __init__(self, test_dir):
         self.device = super().__init__()   # Init the adb device
-        self.test_dir = ""         # This will hold the output directtoy
-        self.golden_file = ""      # This will hold the golden comparsion directory 
         self.color_lu_dict = self.setup_color_lu_dict()
         self.test_dir = test_dir
-        self.golden_dir = golden_dir
         self.TESSERACT_PATH = self.test_dir + "/" + android_eye.TESSERACT_PATH_ROOT
         Path(self.TESSERACT_PATH).mkdir(parents=True, exist_ok=True) 
         self.IMAGES_PATH = self.test_dir + "/" +  android_eye.IMAGES_PATH_LOG
@@ -125,23 +122,6 @@ class android_eye(adb_driver):
         self.LOG_PATH = self.test_dir + "/" +  android_eye.LOG_PATH_ROOT
         Path(self.LOG_PATH).mkdir(parents=True, exist_ok=True) 
         self.CWD_PATH = os.getcwd()
-        self.fpn_dir=""
-        if(fpn):
-            self.fpn_dir = "fpn"
-        self.golden_cmp = False    # This will determine if a comparision is done
-        if(golden_dir):
-            self.golden_cmp = True
-        self.golden_file = self.CWD_PATH + "/" + android_eye.GOLDEN_VEC_ROOT + self.golden_dir + "/screen_cap.txt"
-        self.lt_check = False    # This will determine if a comparision is done
-        if(lt_offset != 0):
-            self.lt_check = True 
-            self.lt_offset  = int(lt_offset)
-        if(bcf_elasped !=0):
-            self.bcf_check = True 
-            self.bcf_elasped  = int(bcf_elasped)            
-        self.time_window_ck_assert = True   
-        self.time_bcf_assert = True 
-        self.ticket_removal = ticket_removal
         self.prev_string_dict = set()  # Set to track previous recorded strings
 
 
@@ -231,9 +211,12 @@ class android_eye(adb_driver):
 
     def gen_screen_struct(self, inFile, screen_cap, section, color, segement_size):
         """
-        Function to tesseract output text file and
-        generate the dictonary which contains test 
-        and color 
+        Function to form the data structure containing cell info:
+        (1) Text as output from Tesseract 
+        (2) The back-grounf color of the cell
+        (3) The height of the cell
+    	The order of the element in the list reflects the 
+    	ordering of the cells on the screen
         """
         string = ""
         screen_cap_sec_lst = [[],[],[]]
@@ -293,10 +276,10 @@ class android_eye(adb_driver):
 
     def element_parser(self, screen_capture, current_time):
         """
-        Function to parse the screen capture into static and dymanic
-        elements. 
-        Static elements are not time dependant.
-        This was used on the version of the tool I used for wor purposed - not used for the Samsumg Phone version of the tool
+        Function to parse the screen capture into different categories
+        This was used on the version of the tool I used for work purposed - 
+        This is not used for the Samsumg Phone demo version of the tool.
+        I will leave it here as a place holder
         """
 
         return screen_capture
@@ -315,17 +298,6 @@ class android_eye(adb_driver):
                     textfile.write(" ")
                 textfile.write("\n\n") 
         textfile.close()
-
-    def compare_static(self, op_file_name):
-        if(self.golden_cmp):    
-            if(filecmp.cmp(self.golden_file, op_file_name)):
-                print("Test Pass")
-            else:
-                print("Test Failed")
-            text1 = open(self.golden_file).readlines()
-            text2 = open(op_file_name).readlines()
-            for line in difflib.unified_diff(text1, text2):
-                print(line)
 
     def is_similar(self, image1, image2):
         """ 
@@ -359,15 +331,13 @@ class android_eye(adb_driver):
             inspec_screen_crop_color = inspec_screen[android_eye.CROP_TOP:android_eye.CROP_BOT, :]
             page_trunc = self.check_trans_at_topscn(inspec_screen_crop)   # Detect if page is truncated at top => discard first element
             if(screen_cnt!=1):
-                cv2.imwrite(self.IMAGES_PATH + 'stop_prev.png', prev_screen[:, :android_eye.SIM_CROP_RIGHT])
-                cv2.imwrite(self.IMAGES_PATH + 'stop_curr.png', inspec_screen_bw[:, :android_eye.SIM_CROP_RIGHT])
-                if(self.is_similar(inspec_screen_bw[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT], prev_screen[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT])): # Use greyscale to reduce computation effort
+                if(self.is_similar(inspec_screen_bw[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT], # Check if two consecutive screens are the same
+                          prev_screen[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT])):             # Use greyscale to reduce computation effort
                     file_name = self.LOG_PATH + self.fpn_dir + "screen" + str(screen_cnt) + '.png'
                     os.remove(file_name)  # Remove the last screen printed out as it will be a duplicate
                     print("Screen Capture Complete")
                     screen_cap_complete = True
-            # Not Lat Page => Remove Last Capscren entry from output list and prev string dictonary
-                else:
+                else:     # Note Last Page => Remove Last Capscren entry from output list and prev string dictonary as this corresponds to a potentially truncated segment
                     del_str = screen_capture.pop(-1)[0]
                     self.prev_string_dict.remove(del_str)
             sub_image_lst, trans_pnt = self.find_sub_images(inspec_screen_crop, True)
@@ -375,7 +345,7 @@ class android_eye(adb_driver):
             screen_capture = self.capture_screen(sub_image_lst, color_sub_image, screen_capture, page_trunc, trans_pnt, screen_cnt)
             prev_screen = np.copy(inspec_screen_bw)
             adjusted_scroll = ((trans_pnt[-2])/inspec_screen_crop.shape[0])*(android_eye.AJ_SC_TUN_SCN)*android_eye.AJ_UNDERSWIPE_FACTOR
-            self.swipe_adb(y1=adjusted_scroll)
+            self.swipe_adb(y1=adjusted_scroll)   # Swipe the device to the next screen
             screen_cnt +=1
 
 
@@ -383,5 +353,4 @@ class android_eye(adb_driver):
         screen_capture = self.element_parser(screen_capture, current_time)
         op_file_name = self.LOG_PATH + self.fpn_dir + "screen_cap" + '.txt'
         self.print_op_file(screen_capture, op_file_name)
-        self.compare_static(op_file_name)
-        assert self.time_window_ck_assert,  "Time check is Outside Permissable Window"
+
