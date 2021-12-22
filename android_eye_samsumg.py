@@ -14,7 +14,6 @@ import cv2
 import subprocess
 import numpy as np
 import sys
-#np.set_printoptions(threshold=sys.maxsize)
 from ppadb.client import Client as AdbClient
 from enum import Enum
 import os
@@ -44,7 +43,7 @@ class adb_driver():
         self.device = devices[0]
         return self.device 
 
-    def swipe_adb(self, x1=0, y1=790, x2=0, y2=0, dur=1900):#2100 #2000  #5000
+    def swipe_adb(self, x1=0, y1=790, x2=0, y2=0, dur=1900):
         """
         Function to swipe
         the android devices screen
@@ -79,7 +78,7 @@ class android_eye(adb_driver):
     SIM_CROP_BOTTOM = 800   
     # Adaptive scrolling crop points
     AJ_SC_FULL_SCN = 780
-    AJ_SC_TUN_SCN=CROP_BOT-CROP_TOP  #990#1025#970 #753 #755  #773 #776
+    AJ_SC_TUN_SCN=CROP_BOT-CROP_TOP  
     AJ_UNDERSWIPE_FACTOR = 0.97
     # Duplicate Screen Check Constants
     SIMILARITY_THRES = 8000  # 
@@ -91,7 +90,8 @@ class android_eye(adb_driver):
     GOLDEN_VEC_ROOT = "golden/"
     # Screen check location constants
     TRUN_SCREEN_THRESHOLD_CK = 30  #  This defines how far we check for a color transition to determine screen trunction
-    RHS_MARGIN_THRES = 4
+    RHS_MARGIN_THRES = 4           # This defines how far away from the RHS of the image we sample for transition detection, color detection etc
+                                   # offset is needed to remove noise from fading effects on scroll bar etc.
 
 
     class Color(Enum):  
@@ -143,8 +143,6 @@ class android_eye(adb_driver):
                          }
         return color_lu_dict
 
-    ## Class varible - Color Look-up table
-    #color_lu_dict = android_eye.setup_color_lu_dict()
 
     def find_sub_images(self, image, page_trunc):
         """
@@ -231,10 +229,10 @@ class android_eye(adb_driver):
             	screen_cap_sec_lst[2] = segement_size
             	screen_cap.append(screen_cap_sec_lst)
         else:                       
-        	screen_cap_sec_lst[0] = "Dummy"         ## Identify test free segments with the keyword "Dummy" 
-        	screen_cap_sec_lst[1] = self.Color.WHITE            
-        	screen_cap_sec_lst[2] = 0
-        	screen_cap.append(screen_cap_sec_lst)       
+        	screen_cap_sec_lst[0] = "Dummy"             ## Identify test free segments with the keyword "Dummy", 
+        	screen_cap_sec_lst[1] = self.Color.WHITE    ## we need to keep these as they may be the truncated segement      
+        	screen_cap_sec_lst[2] = 0                   ## which we need to remove later.  Any remaining empty cells are filtered out 
+        	screen_cap.append(screen_cap_sec_lst)       ## before the text file is created.
         return screen_cap
 
 
