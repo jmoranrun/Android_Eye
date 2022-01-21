@@ -25,6 +25,7 @@ import re
 import time
 from datetime import datetime
 import cProfile
+from collections import Counter
 
 ################################################################
 ########### Class to Inferface to ADB
@@ -58,7 +59,7 @@ class adb_driver():
         screen = device.screencap()
         with open("screen.png", "wb") as fp:
             fp.write(screen)
-        with open(self.LOG_PATH + self.fpn_dir + "screen%d.png" % screen_cnt, "wb") as fp:
+        with open(self.LOG_PATH + "screen%d.png" % screen_cnt, "wb") as fp:
             fp.write(screen)
 
 
@@ -70,7 +71,7 @@ class android_eye(adb_driver):
 
     # Constant to define crop points
     CROP_TOP = 730 
-    CROP_BOT = 2000
+    CROP_BOT = 1950
     CROP_LEFT = 0
     CROP_RIGHT = 960
     # Scroll bar removal crop point
@@ -90,7 +91,7 @@ class android_eye(adb_driver):
     GOLDEN_VEC_ROOT = "golden/"
     # Screen check location constants
     TRUN_SCREEN_THRESHOLD_CK = 30  #  This defines how far we check for a color transition to determine screen trunction
-    RHS_MARGIN_THRES = 4           # This defines how far away from the RHS of the image we sample for transition detection, color detection etc
+    RHS_MARGIN_THRES = 20         # This defines how far away from the RHS of the image we sample for transition detection, color detection etc
                                    # offset is needed to remove noise from fading effects on scroll bar etc.
 
 
@@ -150,6 +151,7 @@ class android_eye(adb_driver):
       This function will scan down the RHS of the image and find 
       transitions on colors to identify sub-image boundaries.
       The location of the transition points are stored in array trans_pnt
+      Note, the last segement of truncated screens (i.e. all screens that are not the last screen)
         """
         trans_pnt=[0]
         sub_image_lst=[]
@@ -188,7 +190,7 @@ class android_eye(adb_driver):
         """ 
         right_most_row = image[0, image.shape[1]-android_eye.RHS_MARGIN_THRES] # RHS Column of image
         key=str(right_most_row) 
-        color = self.color_lu_dict.get(key,0)
+        color = self.color_lu_dict.get(key, 0)   
         return color
 
     def invert_img(self, image):
@@ -228,8 +230,9 @@ class android_eye(adb_driver):
             	screen_cap_sec_lst[1] = color           
             	screen_cap_sec_lst[2] = segement_size
             	screen_cap.append(screen_cap_sec_lst)
-        else:                       
-        	screen_cap_sec_lst[0] = "Dummy"             ## Identify test free segments with the keyword "Dummy", 
+        else:
+        	self.prev_string_dict.add("Dummy")                       
+        	screen_cap_sec_lst[0] = "Dummy"             ## Identify text free segments with the keyword "Dummy", 
         	screen_cap_sec_lst[1] = self.Color.WHITE    ## we need to keep these as they may be the truncated segement      
         	screen_cap_sec_lst[2] = 0                   ## which we need to remove later.  Any remaining empty cells are filtered out 
         	screen_cap.append(screen_cap_sec_lst)       ## before the text file is created.
@@ -248,7 +251,7 @@ class android_eye(adb_driver):
         """
         for count, sub_image in enumerate(sub_image_lst):
             if(not((page_trunc and (screen_cnt !=1)) and (count==0))):    ##  Detect First Segment of Last Page and if its truncated
-                color = self.find_image_color(color_sub_image[count])
+                color = self.find_image_color(color_sub_image[count], count)
                 if(color == self.Color.RED or color == self.Color.NAVY_BLUE):
                     sub_image = self.invert_img(sub_image)
                 cv2.imwrite(self.IMAGES_PATH + 'sub_image{}.png'.format(count, screen_cnt),sub_image)
@@ -290,11 +293,16 @@ class android_eye(adb_driver):
         textfile = open(op_file_name, "w")  
         for element in screen_capture:
             if("Dummy" not in element[0]):
-                for sub_element in element:
+            	textfile.write("--------------------------------------------------------------\n")            	
+            	for sub_idx, sub_element in enumerate(element):
                     sub_element=str(sub_element)
+                    if(sub_idx == 1):
+                    	textfile.write("CELL COLOR: ")
+                    elif(sub_idx == 2):
+                    	textfile.write("CELL HEIGHT: ")
                     textfile.write(sub_element.rstrip("\n"))
-                    textfile.write(" ")
-                textfile.write("\n\n") 
+                    textfile.write("\n")
+            	textfile.write("--------------------------------------------------------------\n\n\n")
         textfile.close()
 
     def is_similar(self, image1, image2):
@@ -331,7 +339,7 @@ class android_eye(adb_driver):
             if(screen_cnt!=1):
                 if(self.is_similar(inspec_screen_bw[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT], # Check if two consecutive screens are the same
                           prev_screen[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT])):             # Use greyscale to reduce computation effort
-                    file_name = self.LOG_PATH + self.fpn_dir + "screen" + str(screen_cnt) + '.png'
+                    file_name = self.LOG_PATH  + "screen" + str(screen_cnt) + '.png'
                     os.remove(file_name)  # Remove the last screen printed out as it will be a duplicate
                     print("Screen Capture Complete")
                     screen_cap_complete = True
@@ -349,6 +357,6 @@ class android_eye(adb_driver):
 
 # Now output the screen descriptors to output files
         screen_capture = self.element_parser(screen_capture, current_time)
-        op_file_name = self.LOG_PATH + self.fpn_dir + "screen_cap" + '.txt'
+        op_file_name = self.LOG_PATH +  "screen_cap" + '.txt'
         self.print_op_file(screen_capture, op_file_name)
 
