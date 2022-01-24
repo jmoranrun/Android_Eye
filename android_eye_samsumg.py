@@ -1,4 +1,5 @@
-####################################################################
+###################################################################################
+# Author; John  Moran
 # Android Eye Tool
 # Tool interfaes between OpenCV and Android Debug Bridge
 # to scroll through a multiple screen industrial device
@@ -7,7 +8,13 @@
 # than the heigth of the device's screen.
 # This version of the tool is used as demo on a Samsung Galaxy
 # A51.
-####################################################################
+#
+#
+# Usage. 
+# In a Linux env with ADB running start a Python3 shell
+# Then create an Android Eye object:. E.g.:  e = android_eye(test_dir="test6")
+# Then invoke the run_capture method. E.g.:  e.run_capture()
+###################################################################################
 
 
 import cv2
@@ -27,9 +34,9 @@ from datetime import datetime
 import cProfile
 from collections import Counter
 
-################################################################
+###################################################################################
 ########### Class to Inferface to ADB
-################################################################
+###################################################################################
 
 
 class adb_driver():
@@ -59,13 +66,11 @@ class adb_driver():
         screen = device.screencap()
         with open("screen.png", "wb") as fp:
             fp.write(screen)
-        with open(self.LOG_PATH + "screen%d.png" % screen_cnt, "wb") as fp:
-            fp.write(screen)
 
 
-################################################################
+###################################################################################
 ########### Android Eye Class
-################################################################
+###################################################################################
 
 class android_eye(adb_driver):
 
@@ -251,7 +256,7 @@ class android_eye(adb_driver):
         """
         for count, sub_image in enumerate(sub_image_lst):
             if(not((page_trunc and (screen_cnt !=1)) and (count==0))):    ##  Detect First Segment of Last Page and if its truncated
-                color = self.find_image_color(color_sub_image[count], count)
+                color = self.find_image_color(color_sub_image[count])
                 if(color == self.Color.RED or color == self.Color.NAVY_BLUE):
                     sub_image = self.invert_img(sub_image)
                 cv2.imwrite(self.IMAGES_PATH + 'sub_image{}.png'.format(count, screen_cnt),sub_image)
@@ -335,6 +340,7 @@ class android_eye(adb_driver):
             inspec_screen_crop=inspec_screen_bw[android_eye.CROP_TOP:android_eye.CROP_BOT,android_eye.CROP_LEFT:android_eye.CROP_RIGHT]
             cv2.imwrite(self.IMAGES_PATH + 'crop' + str(screen_cnt) + '.png', inspec_screen_crop)
             inspec_screen_crop_color = inspec_screen[android_eye.CROP_TOP:android_eye.CROP_BOT, :]
+            cv2.imwrite(self.LOG_PATH + 'screen' +str(screen_cnt) + '.png', inspec_screen_crop_color)
             page_trunc = self.check_trans_at_topscn(inspec_screen_crop)   # Detect if page is truncated at top => discard first element
             if(screen_cnt!=1):
                 if(self.is_similar(inspec_screen_bw[:android_eye.SIM_CROP_BOTTOM, :android_eye.SIM_CROP_RIGHT], # Check if two consecutive screens are the same
